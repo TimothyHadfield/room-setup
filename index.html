@@ -633,7 +633,7 @@ function fitView(){
   const bb=bbox(state.room.poly);
   const pad=60;
   const sx=(cssW-pad*2)/Math.max(bb.w,1), sy=(cssH-pad*2)/Math.max(bb.h,1);
-  view.scale=Math.min(sx,sy);
+  view.scale=Math.max(0.3,Math.min(20,Math.min(sx,sy)));
   view.ox=(cssW-bb.w*view.scale)/2 - bb.x*view.scale;
   view.oy=(cssH-bb.h*view.scale)/2 - bb.y*view.scale;
 }
