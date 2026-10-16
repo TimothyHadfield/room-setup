@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Room Planner — Bedroom Layout Designer</title>
+<meta name="description" content="A to-scale bedroom layout planner: draw the room, drag furniture around, and check what fits." />
+<link rel="icon" href="data:," />
 <style>
   :root{
     --bg:#eef0f3; --panel:#ffffff; --ink:#1f2430; --muted:#6b7280;
@@ -33,6 +35,14 @@
   .tbtn:hover{background:#f6f7f9;}
   .tbtn.danger:hover{background:#fdeceb;border-color:#f3c4c0;color:var(--danger);}
   .save-state{font-size:12px;color:var(--muted);min-width:74px;}
+  /* Narrow screens: the header buttons don't fit, and the page can't scroll,
+     so let the header scroll sideways instead of cutting buttons off. */
+  @media (max-width:700px){
+    header{overflow-x:auto;}
+    header .tbtn,header .save-state,header .logo{flex-shrink:0;white-space:nowrap;}
+    .statusbar{overflow-x:auto;}
+    .statusbar > *{flex-shrink:0;white-space:nowrap;}
+  }
 
   .app{display:flex;height:calc(100% - 52px);}
 
@@ -192,7 +202,7 @@
   <button class="tbtn" id="btnExport">Save File</button>
   <button class="tbtn" id="btnImport">Load File</button>
   <button class="tbtn danger" id="btnClear">Clear All</button>
-  <input type="file" id="fileInput" accept="application/json" style="display:none" />
+  <input type="file" id="fileInput" aria-label="Layout file" accept="application/json" style="display:none" />
 </header>
 
 <div class="app">
@@ -208,7 +218,7 @@
     <!-- SETUPS -->
     <div class="section">
       <h2>Setups</h2>
-      <select id="setupSel"></select>
+      <select id="setupSel" aria-label="Setup"></select>
       <div class="btnrow" style="margin-top:7px;">
         <button class="mini" id="setupDup">Duplicate</button>
         <button class="mini" id="setupRename">Rename</button>
@@ -223,8 +233,8 @@
       <div class="field">
         <label>Rectangular room size</label>
         <div class="row">
-          <div class="unit-suffix"><input type="number" id="roomW" min="1" step="0.5" /><span class="u" id="roomWU">ft</span></div>
-          <div class="unit-suffix"><input type="number" id="roomH" min="1" step="0.5" /><span class="u" id="roomHU">ft</span></div>
+          <div class="unit-suffix"><input type="number" id="roomW" min="1" step="0.5" aria-label="Room width" /><span class="u" id="roomWU">ft</span></div>
+          <div class="unit-suffix"><input type="number" id="roomH" min="1" step="0.5" aria-label="Room length" /><span class="u" id="roomHU">ft</span></div>
         </div>
       </div>
       <div class="btnrow">
@@ -264,7 +274,7 @@
       <h2>Display</h2>
       <div class="field">
         <label>Units</label>
-        <select id="unitSel">
+        <select id="unitSel" aria-label="Units">
           <option value="inches">Inches</option>
           <option value="imperial">Feet &amp; inches</option>
           <option value="metric">Centimeters</option>
@@ -272,7 +282,7 @@
       </div>
       <div class="field">
         <label>Grid size</label>
-        <select id="gridSel"></select>
+        <select id="gridSel" aria-label="Grid size"></select>
       </div>
       <div class="checkrow"><input type="checkbox" id="optSnap" checked /><label for="optSnap" style="margin:0;font-weight:500;color:var(--ink);">Snap to grid &amp; walls</label></div>
       <div class="checkrow"><input type="checkbox" id="optUseClear" checked /><label for="optUseClear" style="margin:0;font-weight:500;color:var(--ink);">Account for clearance space</label></div>
@@ -290,9 +300,9 @@
     </div>
     <div class="statusbar">
       <div class="zoom">
-        <button class="zbtn" id="zoomOut">−</button>
-        <button class="zbtn" id="zoomFit" title="Fit room">⤢</button>
-        <button class="zbtn" id="zoomIn">+</button>
+        <button class="zbtn" id="zoomOut" aria-label="Zoom out">−</button>
+        <button class="zbtn" id="zoomFit" title="Fit room" aria-label="Fit room">⤢</button>
+        <button class="zbtn" id="zoomIn" aria-label="Zoom in">+</button>
       </div>
       <span class="hint" id="cvHint">Add furniture from the left · drag to move · press R to rotate · click any measurement to resize</span>
       <span class="sb-status good" id="sbStatus">✓ All clear</span>
@@ -549,7 +559,23 @@ function clearanceZones(it){
 /* ============================ Validation ============================ */
 function itemStatus(it){
   const msgs=[]; let level='ok';
-  if(it.fixture || it.layer==='floor') return {level:'ok',msgs:[]};
+  if(it.layer==='floor') return {level:'ok',msgs:[]};
+  if(it.fixture){
+    // Doors/closets/windows sit on a wall, so skip wall and overlap checks,
+    // but furniture inside their clearance (door swing, closet front) still counts.
+    if(state.settings.useClearance){
+      for(const z of clearanceZones(it)){
+        for(const o of state.items){
+          if(o.id===it.id || o.layer==='floor') continue;
+          if(rectsOverlap(z.rect,footprint(o))){
+            msgs.push({t:cap(z.side)+' clearance blocked by '+o.name,l:'warn'});
+            level='warn';
+          }
+        }
+      }
+    }
+    return {level,msgs};
+  }
   const fp=footprint(it);
   if(!rectInPoly(fp,state.room.poly)){ msgs.push({t:'Sticks out past a wall',l:'err'}); level='err'; }
   for(const o of state.items){
@@ -1352,10 +1378,12 @@ window.addEventListener('keydown',e=>{
     e.preventDefault(); return;
   }
   if(!it) return;
+  if(e.ctrlKey||e.metaKey||e.altKey) return; // let Ctrl+R (reload) etc. through untouched
   if(e.key.toLowerCase()==='r'){
     pushUndo(); it.rot=(it.rot + (e.shiftKey?270:90))%360; commitNoUndo();
     refreshPanels(); render(); return;
   }
+  if(it.locked) return; // "Lock position": dragging is blocked, so nudging is too
   const step=state.settings.snap?state.settings.grid:1;
   let moved=false;
   if(e.key==='ArrowLeft'){ it.x-=step; moved=true; }
@@ -1552,34 +1580,34 @@ function buildProps(it){
   const html=`
     <div class="field">
       <label>Name</label>
-      <input type="text" id="ppName" value="${escapeHtml(it.name)}" />
+      <input type="text" id="ppName" aria-label="Name" value="${escapeHtml(it.name)}" />
     </div>
     <div class="field">
       <label>Size (width × depth)</label>
       <div class="row">
-        <div class="unit-suffix"><input type="number" id="ppW" min="1" step="0.5" value="${toField(it.w)}" /><span class="u">${u}</span></div>
-        <div class="unit-suffix"><input type="number" id="ppH" min="1" step="0.5" value="${toField(it.h)}" /><span class="u">${u}</span></div>
+        <div class="unit-suffix"><input type="number" id="ppW" aria-label="Width" min="1" step="0.5" value="${toField(it.w)}" /><span class="u">${u}</span></div>
+        <div class="unit-suffix"><input type="number" id="ppH" aria-label="Depth" min="1" step="0.5" value="${toField(it.h)}" /><span class="u">${u}</span></div>
       </div>
     </div>
     <div class="field">
       <label>Rotation</label>
       <div class="rotctl">
-        <button class="rbtn" id="ppRotL">⟲</button>
+        <button class="rbtn" id="ppRotL" aria-label="Rotate left">⟲</button>
         <span class="rval">${it.rot}°</span>
-        <button class="rbtn" id="ppRotR">⟳</button>
+        <button class="rbtn" id="ppRotR" aria-label="Rotate right">⟳</button>
       </div>
     </div>
     <div class="field">
       <label>Clearance — space needed around the item</label>
       <div class="clearance-grid">
         <div></div>
-        <div><div class="lbl">Back</div><input type="number" id="clback" min="0" step="1" value="${toField(it.cl.back)}" /></div>
+        <div><div class="lbl">Back</div><input type="number" id="clback" aria-label="Back clearance" min="0" step="1" value="${toField(it.cl.back)}" /></div>
         <div></div>
-        <div><div class="lbl">Left</div><input type="number" id="clleft" min="0" step="1" value="${toField(it.cl.left)}" /></div>
+        <div><div class="lbl">Left</div><input type="number" id="clleft" aria-label="Left clearance" min="0" step="1" value="${toField(it.cl.left)}" /></div>
         <div class="cc">ITEM</div>
-        <div><div class="lbl">Right</div><input type="number" id="clright" min="0" step="1" value="${toField(it.cl.right)}" /></div>
+        <div><div class="lbl">Right</div><input type="number" id="clright" aria-label="Right clearance" min="0" step="1" value="${toField(it.cl.right)}" /></div>
         <div></div>
-        <div><div class="lbl">Front ▸</div><input type="number" id="clfront" min="0" step="1" value="${toField(it.cl.front)}" /></div>
+        <div><div class="lbl">Front ▸</div><input type="number" id="clfront" aria-label="Front clearance" min="0" step="1" value="${toField(it.cl.front)}" /></div>
         <div></div>
       </div>
       <div class="hint" style="margin-top:6px;">Front = the side that needs open space (chair, drawers, door swing). The white tick on the item marks the front.</div>
