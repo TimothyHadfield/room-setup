@@ -25,6 +25,8 @@ None.
 ## Decisions
 - 2026-10-16 sweep: Layout Check now flags furniture inside a door swing or closet front (it said "All clear" before, contradicting the README). Arrow keys no longer move a locked item. Ctrl/Cmd+R no longer rotates the selected item before reloading. Under 700px the header and status bar scroll sideways instead of cutting off Save/Load/Clear. Added aria-labels, meta description and an empty favicon (stops a 404). Desktop pixels unchanged (pixel diff vs live).
 
+- 2026-10-17: all 9 browser alert/confirm/prompt dialogs replaced by one in-app dialog (`appAlert/appConfirm/appPrompt`, styled from the Help modal); same Cancel/OK meaning; a capture-phase key guard stops app shortcuts while it is open. Desktop pixels unchanged when closed (pixel diff).
+
 ## NOT verified
 - Real iPhone touch: dragging, double-tap to add a corner (`dblclick` on touch), the inline number editor with the iOS keyboard.
 - PNG export and Load File on iOS Safari.
