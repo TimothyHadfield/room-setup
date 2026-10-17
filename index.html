@@ -189,6 +189,13 @@
     padding:1px 5px;font-size:11px;font-family:inherit;
   }
   .modal .close{float:right;border:none;background:#f1f2f5;border-radius:7px;padding:6px 11px;font-size:13px;}
+  /* in-app alert / confirm / prompt (replaces the browser's own dialogs) */
+  #dlgOverlay{z-index:60;}
+  .modal.dlg{max-width:380px;padding:20px 22px;}
+  .modal.dlg p{margin:0 0 14px;color:var(--ink);white-space:pre-wrap;}
+  .modal.dlg input{margin:0 0 14px;}
+  .modal.dlg .btnrow{justify-content:flex-end;}
+  .modal.dlg .mini{flex:0 0 auto;min-width:76px;}
 </style>
 </head>
 <body>
@@ -350,6 +357,17 @@
       arrows nudge · <kbd>Esc</kbd> deselect · scroll to zoom.
     </p>
     <p style="color:var(--muted);">Your layout saves automatically in this browser. Use Save File / Load File to keep a copy.</p>
+  </div>
+</div>
+
+<div class="overlay" id="dlgOverlay">
+  <div class="modal dlg" role="dialog" aria-modal="true" aria-labelledby="dlgMsg">
+    <p id="dlgMsg"></p>
+    <input type="text" id="dlgInput" aria-label="Name" />
+    <div class="btnrow">
+      <button class="mini" id="dlgCancel">Cancel</button>
+      <button class="mini solid" id="dlgOk">OK</button>
+    </div>
   </div>
 </div>
 
@@ -1360,8 +1378,57 @@ cv.addEventListener('pointerleave',()=>{
   if(hoverKey){ hoverKey=''; render(); }
 });
 
+/* ============================ In-app dialogs ============================ */
+// Replace the browser's alert/confirm/prompt. Same meaning: Cancel/Escape/backdrop -> false/null,
+// OK/Enter -> true/the typed text. While open, no key reaches the app's shortcuts.
+let dlgDone=null, dlgPrevFocus=null;
+function dlgIsOpen(){ return !!dlgDone; }
+function openDlg(kind,msg,value,okText){
+  if(dlgDone) dlgDone(false); // never stack two dialogs
+  const ov=document.getElementById('dlgOverlay');
+  const inp=document.getElementById('dlgInput');
+  const cancel=document.getElementById('dlgCancel');
+  const ok=document.getElementById('dlgOk');
+  document.getElementById('dlgMsg').textContent=msg;
+  ok.textContent=okText||'OK';
+  cancel.style.display=kind==='alert'?'none':'';
+  inp.style.display=kind==='prompt'?'':'none';
+  inp.value=kind==='prompt'?(value==null?'':String(value)):'';
+  dlgPrevFocus=document.activeElement;
+  ov.classList.add('show');
+  if(kind==='prompt'){ inp.focus(); inp.select(); } else ok.focus();
+  return new Promise(resolve=>{
+    dlgDone=accepted=>{
+      dlgDone=null;
+      ov.classList.remove('show');
+      const out=kind==='prompt'?(accepted?inp.value:null):(kind==='confirm'?!!accepted:undefined);
+      if(dlgPrevFocus&&dlgPrevFocus.focus&&document.contains(dlgPrevFocus)){ try{ dlgPrevFocus.focus(); }catch(e){} }
+      dlgPrevFocus=null;
+      resolve(out);
+    };
+  });
+}
+function appAlert(msg){ return openDlg('alert',msg); }
+function appConfirm(msg,okText){ return openDlg('confirm',msg,null,okText); }
+function appPrompt(msg,def){ return openDlg('prompt',msg,def); }
+document.getElementById('dlgOk').onclick=()=>{ if(dlgDone) dlgDone(true); };
+document.getElementById('dlgCancel').onclick=()=>{ if(dlgDone) dlgDone(false); };
+document.getElementById('dlgOverlay').onclick=e=>{ if(e.target.id==='dlgOverlay'&&dlgDone) dlgDone(false); };
+// Capture phase on window runs before every other key handler: while a dialog is open, swallow all
+// keys (typing still goes into the input as normal) and handle Enter / Escape here.
+window.addEventListener('keydown',e=>{
+  if(!dlgDone) return;
+  e.stopImmediatePropagation();
+  if(e.key==='Escape'){ e.preventDefault(); dlgDone(false); }
+  else if(e.key==='Enter'){
+    e.preventDefault();
+    dlgDone(document.activeElement!==document.getElementById('dlgCancel'));
+  }
+},true);
+
 /* ============================ Keyboard ============================ */
 window.addEventListener('keydown',e=>{
+  if(dlgIsOpen()) return;
   const tag=(e.target.tagName||'').toLowerCase();
   if(tag==='input'||tag==='select'||tag==='textarea') return;
   const it=state.items.find(i=>i.id===selItem);
@@ -1496,12 +1563,12 @@ function switchSetup(id){
   saveSetups();
   fitView(); syncControls(); buildSetupList(); refreshPanels(); render();
 }
-function dupSetup(){
+async function dupSetup(){
   commitInline();
   syncActiveSetup();
   const cur=setups.find(s=>s.id===activeSetupId);
   const base=(cur?cur.name:'Setup')+' copy';
-  const name=prompt('Name for the new setup (a copy of the current layout):', base);
+  const name=await appPrompt('Name for the new setup (a copy of the current layout):', base);
   if(name==null) return;
   const id=uid();
   setups.push({id:id, name:(name.trim()||base), data:snapshot(), updatedAt:Date.now()});
@@ -1509,19 +1576,20 @@ function dupSetup(){
   undoStack=[]; redoStack=[]; lastSnap=snapshot();
   saveSetups(); buildSetupList();
 }
-function renameSetup(){
+async function renameSetup(){
   const su=setups.find(s=>s.id===activeSetupId);
   if(!su) return;
-  const name=prompt('Rename this setup:', su.name);
+  const name=await appPrompt('Rename this setup:', su.name);
   if(name==null) return;
   su.name=name.trim()||su.name;
   saveSetups(); buildSetupList();
 }
-function deleteSetup(){
-  if(setups.length<=1){ alert('You need to keep at least one setup.'); return; }
+async function deleteSetup(){
+  if(setups.length<=1){ appAlert('You need to keep at least one setup.'); return; }
   const su=setups.find(s=>s.id===activeSetupId);
   if(!su) return;
-  if(!confirm('Delete the setup "'+su.name+'"? This cannot be undone.')) return;
+  if(!await appConfirm('Delete the setup "'+su.name+'"? This cannot be undone.')) return;
+  if(setups.length<=1||activeSetupId!==su.id) return;
   setups=setups.filter(s=>s.id!==activeSetupId);
   activeSetupId=setups[0].id;
   state=defaultState();
@@ -1758,7 +1826,7 @@ document.getElementById('modeRoom').onclick=()=>setMode('room');
 function applyRectRoom(){
   const w=fromRoomField(document.getElementById('roomW').value);
   const h=fromRoomField(document.getElementById('roomH').value);
-  if(w<12||h<12){ alert('Room is too small.'); return; }
+  if(w<12||h<12){ appAlert('Room is too small.'); return; }
   pushUndo();
   state.room.poly=[{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}];
   resetWallLocks();
@@ -1768,7 +1836,7 @@ function applyRectRoom(){
 function applyLRoom(){
   const w=fromRoomField(document.getElementById('roomW').value);
   const h=fromRoomField(document.getElementById('roomH').value);
-  if(w<24||h<24){ alert('Room is too small for an L-shape.'); return; }
+  if(w<24||h<24){ appAlert('Room is too small for an L-shape.'); return; }
   pushUndo();
   state.room.poly=[
     {x:0,y:0},{x:w,y:0},{x:w,y:h*0.58},
@@ -1831,8 +1899,8 @@ document.getElementById('setupSel').onchange=e=>switchSetup(e.target.value);
 document.getElementById('setupDup').onclick=dupSetup;
 document.getElementById('setupRename').onclick=renameSetup;
 document.getElementById('setupDelete').onclick=deleteSetup;
-document.getElementById('btnClear').onclick=()=>{
-  if(!confirm('Reset the current setup to an empty default room? Your other setups are not affected.')) return;
+document.getElementById('btnClear').onclick=async()=>{
+  if(!await appConfirm('Reset the current setup to an empty default room? Your other setups are not affected.')) return;
   pushUndo();
   state=defaultState();
   selItem=null; selVertex=null;
@@ -1850,10 +1918,10 @@ document.getElementById('fileInput').onchange=e=>{
   const r=new FileReader();
   r.onload=()=>{
     try{ JSON.parse(r.result); }
-    catch(err){ alert('That file is not a valid layout.'); return; }
+    catch(err){ appAlert('That file is not a valid layout.'); return; }
     commitInline(); syncActiveSetup();
     try{ applySnap(r.result); }
-    catch(err){ alert('Could not read that layout.'); return; }
+    catch(err){ appAlert('Could not read that layout.'); return; }
     const id=uid();
     const nm=(f.name||'Imported').replace(/\.json$/i,'').slice(0,40)||'Imported';
     setups.push({id:id, name:nm, data:snapshot(), updatedAt:Date.now()});
