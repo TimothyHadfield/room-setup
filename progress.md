@@ -12,6 +12,7 @@ None active. The app is finished and published; work only on what Tim asks.
 | App (`index.html`) | Working on laptop. Live at https://timothyhadfield.github.io/room-setup/ |
 | Phone (390px) | Loads with no errors or page overflow, but the canvas is only about 93px wide (layout is laptop-first) |
 | Tests | None (single-file app). Verified with phone-view `--eval` |
+| 2026-10-17 site icon | `icon.svg` (tab) + `apple-touch-icon.png` 180px (iPhone home screen): white floor plan (walls, door swing, bed) on the accent blue |
 
 ## Authorized next steps
 None.
